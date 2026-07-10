@@ -83,3 +83,13 @@ export type { CDCManagerConfig } from "./replication/CDCManager";
 // AntiEntropy
 export { AntiEntropy } from "./replication/AntiEntropy";
 export type { MerkleNode, DataEntry, DataProvider } from "./replication/AntiEntropy";
+
+// Integration Support
+export { TcpSecureTransport } from "./transport/TcpSecureTransport";
+export type { TcpSecureTransportConfig } from "./transport/TcpSecureTransport";
+
+export { SqlVecFederationConsumer } from "./integration/SqlVecFederationConsumer";
+export type { SqlVecFederationConsumerConfig } from "./integration/SqlVecFederationConsumer";
+
+export { GraphVecFederationConsumer } from "./integration/GraphVecFederationConsumer";
+export type { GraphVecFederationConsumerConfig, IGraphVecConsensusProvider } from "./integration/GraphVecFederationConsumer";
