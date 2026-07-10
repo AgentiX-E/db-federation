@@ -60,3 +60,26 @@ export type {
   ReplicatedEntry,
   ConflictEntry,
 } from "./core/FederationManager";
+
+// ConflictResolver
+export { ConflictResolver } from "./replication/ConflictResolver";
+export type {
+  ConflictStrategy,
+  ConflictValue,
+  ConflictResult,
+  ConflictPredicate,
+  CustomResolver,
+  CRDTCounterState,
+  CRDTSetState,
+  CRDTMapState,
+} from "./replication/ConflictResolver";
+
+// CDC
+export { CDCEngine } from "./replication/CDCEngine";
+export type { CDCEngineConfig } from "./replication/CDCEngine";
+export { CDCManager } from "./replication/CDCManager";
+export type { CDCManagerConfig } from "./replication/CDCManager";
+
+// AntiEntropy
+export { AntiEntropy } from "./replication/AntiEntropy";
+export type { MerkleNode, DataEntry, DataProvider } from "./replication/AntiEntropy";
