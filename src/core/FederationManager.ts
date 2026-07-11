@@ -62,6 +62,7 @@ export interface IFederationConsumer {
   onConflict(conflict: ConflictEntry): Promise<void>;
 }
 
+/** @internal */
 export const NOT_IMPLEMENTED_YET = "Not implemented in Phase 2";
 
 // ── FederationManager ──────────────────────────

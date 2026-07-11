@@ -167,23 +167,30 @@ export function happenedBefore(a: IHLCTimestamp, b: IHLCTimestamp): boolean {
 /**
  * Serialize to a sortable colon-delimited hex string.
  * Lexicographic sort matches causal order.
+ * Includes nodeId (hex-encoded) for round-trip stability.
  */
 export function hlcToKey(ts: IHLCTimestamp): string {
   const wallHex = ts.wallTime.toString(16).padStart(16, "0");
   const logHex = ts.logical.toString(16).padStart(8, "0");
-  return `${wallHex}:${logHex}`;
+  const nodeHex = Buffer.from(ts.nodeId, "utf-8").toString("hex");
+  return `${wallHex}:${logHex}:${nodeHex}`;
 }
 
 /**
  * Parse a string from hlcToKey() back to IHLCTimestamp.
- * Note: nodeId is lost during serialization; caller must supply it.
+ * All three components (wallTime, logical, nodeId) are restored.
  */
 export function keyToHlc(key: string): IHLCTimestamp {
   const parts = key.split(":");
+  const wallTime = BigInt(`0x${parts[0]}`);
+  const logical = parseInt(parts[1], 16);
+  // parts[2] is hex-encoded nodeId; parts[3..] handles any remaining colons
+  const nodeHex = parts.slice(2).join(":");
+  const nodeId = Buffer.from(nodeHex, "hex").toString("utf-8");
   return new HLC(
-    "",
-    BigInt(`0x${parts[0]}`),
-    parseInt(parts[1], 16),
+    nodeId,
+    wallTime,
+    logical,
   );
 }
 

@@ -282,13 +282,14 @@ describe("HLC — Serialization Roundtrip (AC 42.3)", () => {
     }
   });
 
-  it("should serialize and deserialize correctly", () => {
+  it("should serialize and deserialize correctly (round-trip with nodeId)", () => {
     const ts = makeHLC(BigInt(1_700_000_000_000), 42, "node-test");
     const key = hlcToKey(ts);
     const restored = keyToHlc(key);
 
     expect(restored.wallTime).toBe(ts.wallTime);
     expect(restored.logical).toBe(ts.logical);
+    expect(restored.nodeId).toBe(ts.nodeId);
   });
 
   it("should pad hex strings consistently for bigint sort order", () => {
@@ -332,7 +333,7 @@ describe("HLC — IHLCTimestamp interface compliance", () => {
     }
   });
 
-  it("deserialize(serialize()) should preserve ordering equality", () => {
+  it("deserialize(serialize()) should preserve ordering equality and nodeId", () => {
     const hlc = new HLC("node-roundtrip");
 
     for (let i = 0; i < 50; i++) {
@@ -342,10 +343,11 @@ describe("HLC — IHLCTimestamp interface compliance", () => {
 
       expect(deserialized.wallTime).toBe(ts.wallTime);
       expect(deserialized.logical).toBe(ts.logical);
+      expect(deserialized.nodeId).toBe(ts.nodeId);
     }
   });
 
-  it("should handle bigint boundary values", () => {
+  it("should handle bigint boundary values with nodeId round-trip", () => {
     const maxSafeInt = BigInt(Number.MAX_SAFE_INTEGER);
     const hlc = makeHLC(maxSafeInt, 0, "node-edge");
 
@@ -354,6 +356,7 @@ describe("HLC — IHLCTimestamp interface compliance", () => {
 
     expect(restored.wallTime).toBe(maxSafeInt);
     expect(restored.logical).toBe(0);
+    expect(restored.nodeId).toBe("node-edge");
   });
 });
 

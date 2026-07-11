@@ -10,9 +10,10 @@ export interface IOutboxStore {
 
   /**
    * Fetch the oldest pending entries (for delivery attempt).
-   * Limited by count parameter.
+   * Limited by count parameter. Optionally limit the iteration to prevent
+   * unbounded memory usage for large pending queues.
    */
-  fetchOldestPending(count: number): Promise<OutboxEntry[]>;
+  fetchOldestPending(count: number, limit?: number): Promise<OutboxEntry[]>;
 
   /**
    * Mark an outbox entry as delivered.
@@ -23,6 +24,13 @@ export interface IOutboxStore {
    * Get the count of currently pending entries.
    */
   getPendingCount(): Promise<number>;
+
+  /**
+   * Mark an entry delivery attempt as failed.
+   * Increments retry count. Returns true if the entry was moved to the dead
+   * letter queue (max retries exceeded), false if still pending retry.
+   */
+  markFailed(entryId: string, error?: string): boolean;
 
   /**
    * Get outbox store statistics.

@@ -17,10 +17,26 @@
  * AC 46.4 — Propose re-entrant: remote -> propose -> outbox -> replicate
  */
 
-import type { IConsensusLayer } from "db-cluster";
-import type { IOutboxWriter } from "db-cluster";
 import type { IFederationConsumer, ReplicatedEntry, ConflictEntry } from "../core/FederationManager";
 import { HLC } from "../hlc/HLC";
+
+/**
+ * Minimal consensus layer interface consumed by SqlVecFederationConsumer.
+ * Mirrors the subset of db-cluster's IConsensusLayer used here, avoiding
+ * a hard dependency on the db-cluster package.
+ */
+interface IConsensusLayer {
+  propose(shardId: string, value: string): Promise<number>;
+}
+
+/**
+ * Minimal outbox writer interface consumed by SqlVecFederationConsumer.
+ * Mirrors the subset of db-cluster's IOutboxWriter used here.
+ */
+interface IOutboxWriter {
+  write(shardId: string, index: number, term: number, data: string): Promise<void>;
+  getLastWrittenIndex(shardId: string): Promise<number>;
+}
 
 export interface SqlVecFederationConsumerConfig {
   /** The IConsensusLayer instance from sqlvec-db (db-cluster) */

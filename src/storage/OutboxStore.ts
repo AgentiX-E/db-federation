@@ -100,15 +100,18 @@ export class OutboxStore implements IOutboxStore {
   /**
    * Fetch the oldest pending entries.
    * Sorts by entry ID (lexicographic seq order) to maintain FIFO ordering.
+   * Accepts an optional `limit` to cap the number of entries scanned from
+   * the pending index, preventing unbounded memory usage for large queues.
    */
-  async fetchOldestPending(count: number): Promise<OutboxEntry[]> {
-    // Determine the range of seq values to scan.
-    // We iterate through the sorted pending index for correct ordering.
+  async fetchOldestPending(count: number, limit?: number): Promise<OutboxEntry[]> {
     const entries: OutboxEntry[] = [];
     const range = this.pendingDb.getRange({ start: "pending:", end: "pending:\xff" });
+    let scanned = 0;
 
     for (const item of range) {
       if (entries.length >= count) break;
+      if (limit !== undefined && scanned >= limit) break;
+      scanned++;
       const seq = item.value as number;
       const entryKey = `entry:${seq}`;
       const entry = this.mainDb.get(entryKey) as OutboxEntry | undefined;

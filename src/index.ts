@@ -53,7 +53,7 @@ export { HealthMonitor } from "./monitoring/HealthMonitor";
 export type { HealthMonitorConfig, TargetHealth, FederationHealth } from "./monitoring/HealthMonitor";
 
 // FederationManager
-export { FederationManager, NOT_IMPLEMENTED_YET } from "./core/FederationManager";
+export { FederationManager } from "./core/FederationManager";
 export type {
   FederationManagerConfig,
   IFederationConsumer,
@@ -69,9 +69,6 @@ export type {
   ConflictResult,
   ConflictPredicate,
   CustomResolver,
-  CRDTCounterState,
-  CRDTSetState,
-  CRDTMapState,
 } from "./replication/ConflictResolver";
 
 // CDC

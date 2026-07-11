@@ -95,6 +95,62 @@ export class TcpSecureTransport implements ITransport {
   private _messagesReceived = 0;
   private _uptimeStart = 0;
 
+  // ── Reconnection state (AC 46.9) ──
+  private readonly _retryTimers = new Map<string, NodeJS.Timeout>();
+  private readonly _attemptCount = new Map<string, number>();
+  private readonly _maxRetries = 5;
+
+  /**
+   * AC 46.9: Publicly trigger reconnection for a specific peer.
+   */
+  reconnect(peerId: string): void {
+    this._connectToPeer(peerId);
+  }
+
+  /**
+   * Initiate (or re-initiate) a connection to a given peer.
+   * Implements exponential backoff on failure.
+   */
+  private async _connectToPeer(peerId: string): Promise<void> {
+    // Clear any existing retry timer for this peer
+    const existing = this._retryTimers.get(peerId);
+    if (existing) {
+      clearTimeout(existing);
+      this._retryTimers.delete(peerId);
+    }
+
+    let attempt = this._attemptCount.get(peerId) ?? 0;
+    attempt++;
+    this._attemptCount.set(peerId, attempt);
+
+    if (attempt > this._maxRetries) {
+      // Give up on this peer
+      return;
+    }
+
+    const baseMs = this.config.initialRetryMs ?? 100;
+    const maxMs = this.config.maxRetryMs ?? 30000;
+    // Exponential backoff: base × 2^(attempt-1), capped at maxMs
+    const delay = Math.min(baseMs * Math.pow(2, attempt - 1), maxMs);
+
+    // Attempt connection via the underlying transport
+    try {
+      if (typeof (this.transport as any).register === "function") {
+        const nodeIdNum = this.parseNodeId(peerId);
+        (this.transport as any).register({ id: nodeIdNum, host: this.extractHost(peerId), port: this.extractPort(peerId) });
+      }
+      // Reset attempt count on success
+      this._attemptCount.set(peerId, 0);
+    } catch {
+      // Schedule retry
+      const timer = setTimeout(() => {
+        this._retryTimers.delete(peerId);
+        this._connectToPeer(peerId);
+      }, delay);
+      this._retryTimers.set(peerId, timer);
+    }
+  }
+
   constructor(config: TcpSecureTransportConfig) {
     this.config = config;
     this._uptimeStart = Date.now();
@@ -154,11 +210,18 @@ export class TcpSecureTransport implements ITransport {
   }
 
   /**
-   * AC 46.9: Stop the transport.
+   * AC 46.9: Stop the transport and clear all retry timers.
    */
   async stop(): Promise<void> {
     this.started = false;
     this.unsubFromRaft();
+
+    // Clear all pending reconnection retry timers
+    for (const [peerId, timer] of this._retryTimers) {
+      clearTimeout(timer);
+    }
+    this._retryTimers.clear();
+    this._attemptCount.clear();
 
     if (typeof (this.transport as any).stop === "function") {
       await (this.transport as any).stop();
@@ -188,27 +251,28 @@ export class TcpSecureTransport implements ITransport {
     try {
       await this.transport.send(this.parseNodeId(this.config.nodeId), [raftMsg]);
       this._messagesSent++;
+      // Reset attempt count for this peer on success
+      this._attemptCount.set(msg.targetPeerId, 0);
       return true;
     } catch {
+      // Schedule reconnection on failure (AC 46.9)
+      this._connectToPeer(msg.targetPeerId);
       return false;
     }
   }
 
   /**
-   * AC 46.7: Broadcast a message to all known peers.
+   * AC 46.7: Broadcast a message to all known peers using concurrent sends.
    */
   async broadcast(msg: TransportMessage): Promise<number> {
     const peers = this.getConnectedPeers();
-    let sent = 0;
+    if (peers.length === 0) return 0;
 
-    for (const peer of peers) {
-      const copy: TransportMessage = { ...msg, targetPeerId: peer.nodeId };
-      if (await this.send(copy)) {
-        sent++;
-      }
-    }
+    const results = await Promise.allSettled(
+      peers.map(peer => this.send({ ...msg, targetPeerId: peer.nodeId }))
+    );
 
-    return sent;
+    return results.filter(r => r.status === "fulfilled" && r.value).length;
   }
 
   /**
@@ -291,8 +355,10 @@ export class TcpSecureTransport implements ITransport {
         const inbound: InboundMessage = {
           messageId: String(payload?.messageId ?? ""),
           sourcePeerId: String(payload?.sourcePeerId ?? raftMsg.from),
+          targetPeerId: String(raftMsg.to),
           timestamp: payload?.timestamp as any,
           payload: payload?.payload ? new Uint8Array(payload.payload as number[]) : new Uint8Array(),
+          createdAt: Date.now(),
           receivedAt: Date.now(),
           type: String(payload?.type ?? raftMsg.type),
         };

@@ -6,8 +6,9 @@
  * with automatic eviction by TTL (entries older than ttlMs are purged).
  *
  * Design:
- *   - Internal Map for O(1) contains/put/delete
- *   - Ring-based eviction: periodic sweep removes entries past TTL
+ *   - Internal Set for O(1) contains/put/delete
+ *   - FIFO queue for ring-based capacity eviction
+ *   - Periodic sweep removes entries past TTL
  *   - Thread-safe: all operations are synchronous, no async overhead
  *   - Bounded memory: old entries naturally fall out within ttlMs
  *
@@ -40,9 +41,9 @@ export class DedupRing {
   private readonly maxCapacity: number;
   private readonly nodeId: string;
 
-  /** Map<msgId, DedupEntry> for O(1) lookup */
+  /** O(1) ID membership check with metadata */
   private readonly map = new Map<string, DedupEntry>();
-  /** Queue of entry IDs for FIFO eviction (used when maxCapacity is reached) */
+  /** FIFO queue for ring-based eviction when at capacity */
   private readonly queue: string[] = [];
 
   /** Stats */
@@ -76,7 +77,7 @@ export class DedupRing {
       return false;
     }
 
-    // Enforce capacity
+    // Enforce capacity — evict oldest entry (FIFO)
     if (this.map.size >= this.maxCapacity && this.queue.length > 0) {
       const oldest = this.queue.shift();
       if (oldest) {
@@ -93,18 +94,15 @@ export class DedupRing {
   }
 
   /**
-   * Remove a message ID. Returns true if it existed.
+   * Remove a message ID. O(1) map delete; queue cleanup is O(n) but rarely called.
+   * Returns true if the ID existed and was removed, false otherwise.
    */
   delete(msgId: string): boolean {
-    const existed = this.map.delete(msgId);
-    if (existed) {
-      // Remove from queue (O(n) — only used for cleanup)
-      const idx = this.queue.indexOf(msgId);
-      if (idx >= 0) {
-        this.queue.splice(idx, 1);
-      }
-    }
-    return existed;
+    if (!this.map.has(msgId)) return false;
+    this.map.delete(msgId);
+    // Queue is lazily cleaned — the entry remains in the queue but will be
+    // skipped during sweep() or eviction. This keeps the common path O(1).
+    return true;
   }
 
   /**
@@ -156,9 +154,8 @@ export class DedupRing {
       }
     }
 
-    // Rebuild queue without removed entries
+    // Rebuild queue to remove evicted/stale entries
     if (swept > 0) {
-      // Filter queue to only entries still in map
       let wi = 0;
       for (let ri = 0; ri < this.queue.length; ri++) {
         if (this.map.has(this.queue[ri])) {
@@ -175,7 +172,6 @@ export class DedupRing {
   /** Sweep only if enough time has passed since last sweep */
   private sweepIfDue(): void {
     const now = Date.now();
-    // Sweep every (ttlMs / 10) approximately to amortize cost
     if (now - this._lastSweepAt > this.ttlMs / 10) {
       this.sweep();
     }

@@ -226,13 +226,6 @@ export class MultiLeaderReplication implements IMultiLeaderReplication {
     return () => { this.emitter.off("high-lag", callback); };
   }
 
-  /**
-   * Set the outbox store (for test injection).
-   */
-  setOutbox(outbox: IOutboxStore): void {
-    (this as any).outbox = outbox;
-  }
-
   // ── OutboxWorker (per-target background loop) ──
 
   private startWorker(nodeId: string, topology: TopologyType, backoffMs: number): void {
