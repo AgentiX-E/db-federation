@@ -269,7 +269,7 @@ export class TcpSecureTransport implements ITransport {
     if (peers.length === 0) return 0;
 
     const results = await Promise.allSettled(
-      peers.map(peer => this.send({ ...msg, targetPeerId: peer.nodeId }))
+      peers.map(peer => this.send({ ...msg, targetPeerId: peer.peerId }))
     );
 
     return results.filter(r => r.status === "fulfilled" && r.value).length;
@@ -290,10 +290,16 @@ export class TcpSecureTransport implements ITransport {
    */
   getConnectedPeers(): PeerInfo[] {
     const raftPeers = this.transport.getConnectedPeers?.() ?? [];
-    return raftPeers.map((p: any) => ({
-      nodeId: p.nodeId ?? String(p.id ?? ""),
-      address: "",
-    }));
+    return raftPeers.map((p: any) => {
+      const peerId = p.peerId ?? p.nodeId ?? String(p.id ?? "");
+      return {
+        peerId,
+        address: p.address ?? "",
+        connectedAt: p.connectedAt ?? Date.now(),
+        latencyMs: p.latencyMs ?? 0,
+        nodeId: peerId,
+      } as PeerInfo & { nodeId: string };
+    });
   }
 
   /**

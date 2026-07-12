@@ -35,5 +35,5 @@ export interface IOutboxStore {
   /**
    * Get outbox store statistics.
    */
-  getStats(): OutboxStats;
+  getStats(): OutboxStats | Promise<OutboxStats>;
 }

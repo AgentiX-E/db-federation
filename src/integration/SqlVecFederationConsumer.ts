@@ -66,12 +66,7 @@ export class SqlVecFederationConsumer implements IFederationConsumer {
    */
   async proposeReplicated(entry: ReplicatedEntry): Promise<void> {
     // Observe the remote HLC to maintain causal ordering (AC 46.2)
-    const remoteHlc = entry.hlcTimestamp;
-    this.config.hlc.observe({
-      wallTime: remoteHlc.wallTime,
-      logical: remoteHlc.logical,
-      nodeId: remoteHlc.nodeId,
-    });
+    this.config.hlc.observe(entry.hlcTimestamp);
 
     // Encode the replicated entry with federation metadata
     // Convert BigInt to number for JSON serialization
@@ -80,9 +75,9 @@ export class SqlVecFederationConsumer implements IFederationConsumer {
       sourceDc: entry.sourceDc,
       sourceNodeId: entry.sourceNodeId,
       hlc: {
-        wallTime: Number(remoteHlc.wallTime),
-        logical: Number(remoteHlc.logical),
-        nodeId: remoteHlc.nodeId,
+        wallTime: Number(entry.hlcTimestamp.wallTime),
+        logical: Number(entry.hlcTimestamp.logical),
+        nodeId: entry.hlcTimestamp.nodeId,
       },
       data: entry.data,
       type: entry.type,

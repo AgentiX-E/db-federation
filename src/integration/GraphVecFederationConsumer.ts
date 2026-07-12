@@ -57,11 +57,7 @@ export class GraphVecFederationConsumer implements IFederationConsumer {
    */
   async proposeReplicated(entry: ReplicatedEntry): Promise<void> {
     // Observe remote HLC for causal ordering
-    this.config.hlc.observe({
-      wallTime: entry.hlcTimestamp.wallTime,
-      logical: entry.hlcTimestamp.logical,
-      nodeId: entry.hlcTimestamp.nodeId,
-    });
+    this.config.hlc.observe(entry.hlcTimestamp);
 
     // Build the payload with federation metadata
     const payload = JSON.stringify({

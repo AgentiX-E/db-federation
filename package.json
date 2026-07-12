@@ -1,9 +1,17 @@
 {
   "name": "@agentix-e/db-federation",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Database federation layer for AgentiX-E",
+  "type": "module",
+  "private": false,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
@@ -18,7 +26,5 @@
     "vitest": "^3.0.8",
     "@types/node": "^22.13.4"
   },
-  "keywords": [],
-  "author": "",
   "license": "MIT"
 }

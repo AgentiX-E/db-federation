@@ -58,9 +58,9 @@ export interface CRDTCounterState {
 
 export interface CRDTSetState {
   /** Element → unique tag for OR-Set semantics */
-  elements: Map<string, Set<string>>;
+  elements: Record<string, string[]>;
   /** Tombstoned (element, tag) pairs */
-  tombstones: Map<string, Set<string>>;
+  tombstones: Record<string, string[]>;
 }
 
 export interface CRDTMapState {
