@@ -15,8 +15,12 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "npm run build && changeset publish"
   },
+  "files": ["dist"],
   "dependencies": {
     "zeromq": "^6.2.1",
     "lmdb": "^3.2.6"
