@@ -19,7 +19,10 @@
     "changeset": "changeset",
     "version": "changeset version",
     "release": "npm run build && changeset publish",
-    "docs": "typedoc"
+    "docs": "typedoc",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "coverage": "vitest run --coverage",
+    "ci": "npx tsc --noEmit && npm run test && npm run coverage"
   },
   "files": [
     "dist"
