@@ -30,12 +30,12 @@ import { tmpdir } from 'node:os';
 
 // ── Repo A: db-cluster ──────────────────────────────────────
 import { TestCluster } from '@agentix-e/db-cluster/__tests__/integration/TestCluster';
+import { OperationRecorder } from '@agentix-e/db-cluster/__tests__/linearizability/LinearizabilityChecker';
 
 // ── Repo B: db-federation ───────────────────────────────────
 import { OutboxStore } from '@agentix-e/db-federation/storage/OutboxStore';
 import { DedupRing } from '@agentix-e/db-federation/replication/DedupRing';
 import { HLC } from '@agentix-e/db-federation/hlc/HLC';
-import { OperationRecorder } from '@agentix-e/db-cluster/__tests__/linearizability/LinearizabilityChecker';
 import type { OutboxEntry } from '@agentix-e/db-federation/interfaces/outbox/OutboxEntry';
 
 // ── Repo C: db-operations ───────────────────────────────────
