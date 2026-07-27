@@ -497,7 +497,7 @@ export class ExactlyOnceCDCPipeline {
             const decoder = new TextDecoder();
             const event = JSON.parse(decoder.decode(entry.payload)) as CDCChangeEvent;
             const lsn = entry.id.split(':')[0];
-            this.advanceCheckpoint(event.tableName, lsn);
+            this.advanceCheckpoint(event.tableName, lsn!);
           } catch {
             // Skip checkpoint advance if payload can't be decoded
           }

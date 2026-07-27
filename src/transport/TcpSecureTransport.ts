@@ -338,7 +338,7 @@ export class TcpSecureTransport implements ITransport {
    */
   private extractHost(address: string): string {
     const parts = address.split(":");
-    return parts.length > 1 ? parts[0] : "127.0.0.1";
+    return parts.length > 1 ? parts[0]! : "127.0.0.1";
   }
 
   /**
@@ -346,7 +346,7 @@ export class TcpSecureTransport implements ITransport {
    */
   private extractPort(address: string): number {
     const parts = address.split(":");
-    return parts.length > 1 ? parseInt(parts[1], 10) : 7000;
+    return parts.length > 1 ? parseInt(parts[1]!, 10) : 7000;
   }
 
   /**

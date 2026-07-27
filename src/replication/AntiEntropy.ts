@@ -129,8 +129,8 @@ export class AntiEntropy implements IAntiEntropy {
     endIdx: number,
     depth: number,
   ): MerkleNode {
-    const rangeStart = entries[startIdx].key;
-    const rangeEnd = entries[endIdx].key;
+    const rangeStart = entries[startIdx]!.key;
+    const rangeEnd = entries[endIdx]!.key;
 
     if (depth === 0 || startIdx === endIdx) {
       // Leaf node: hash all entries in range

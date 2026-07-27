@@ -158,8 +158,8 @@ export class DedupRing {
     if (swept > 0) {
       let wi = 0;
       for (let ri = 0; ri < this.queue.length; ri++) {
-        if (this.map.has(this.queue[ri])) {
-          this.queue[wi++] = this.queue[ri];
+        if (this.map.has(this.queue[ri]!)) {
+          this.queue[wi++] = this.queue[ri]!;
         }
       }
       this.queue.length = wi;

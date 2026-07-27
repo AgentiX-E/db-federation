@@ -182,8 +182,8 @@ export function hlcToKey(ts: IHLCTimestamp): string {
  */
 export function keyToHlc(key: string): IHLCTimestamp {
   const parts = key.split(":");
-  const wallTime = BigInt(`0x${parts[0]}`);
-  const logical = parseInt(parts[1], 16);
+  const wallTime = BigInt(`0x${parts[0]!}`);
+  const logical = parseInt(parts[1]!, 16);
   // parts[2] is hex-encoded nodeId; parts[3..] handles any remaining colons
   const nodeHex = parts.slice(2).join(":");
   const nodeId = Buffer.from(nodeHex, "hex").toString("utf-8");
