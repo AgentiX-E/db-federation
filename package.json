@@ -18,9 +18,12 @@
     "clean": "rm -rf dist",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "npm run build && changeset publish"
+    "release": "npm run build && changeset publish",
+    "docs": "typedoc"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "zeromq": "^6.2.1",
     "lmdb": "^3.2.6"
@@ -30,5 +33,25 @@
     "vitest": "^3.0.8",
     "@types/node": "^22.13.4"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AgentiX-E/db-federation.git"
+  },
+  "keywords": [
+    "database",
+    "federation",
+    "cdc",
+    "replication",
+    "multi-datacenter",
+    "conflict-resolution"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  }
 }
