@@ -183,3 +183,81 @@ describe('EdgeReplica', () => {
     expect(data.map(d => d.payload)).toEqual(['c', 'a', 'b']);
   });
 });
+
+// ── 额外覆盖 connect 边界 ─────────────────────────────────────────
+describe('EdgeReplica additional coverage', () => {
+  it('destroyed replica rejects connect', async () => {
+    const edge = new EdgeReplica();
+    // Directly access internal flag for test coverage of destroyed guard
+    (edge as any)._destroyed = true;
+    await expect(
+      edge.connect({ url: 'ws://localhost:1', protocol: 'websocket' }),
+    ).rejects.toThrow('EdgeReplica has been destroyed');
+  });
+
+  it('disconnect clears reconnect timer', async () => {
+    const edge = new EdgeReplica();
+    await edge.connect({ url: 'ws://localhost:1', protocol: 'websocket' });
+    (edge as any)._reconnectTimer = setTimeout(() => {}, 99999);
+    await edge.disconnect();
+    // Timer should be cleared
+    expect((edge as any)._reconnectTimer).toBeNull();
+  });
+
+  it('receive does nothing when disconnected', async () => {
+    const edge = new EdgeReplica();
+    await edge.connect({ url: 'ws://localhost:1', protocol: 'websocket' });
+    await edge.disconnect();
+    edge.receive(99, 'should-be-ignored');
+    expect(edge.getAllData()).toHaveLength(0);
+  });
+
+  it('event handler error isolation does not crash', () => {
+    const edge = new EdgeReplica();
+    edge.onEvent(() => { throw new Error('handler crash'); });
+    // Should not throw
+    expect(() => edge.receive(1, 'test')).not.toThrow();
+  });
+
+  it('syncComplete handler error isolation', async () => {
+    const edge = new EdgeReplica();
+    await edge.connect({ url: 'ws://localhost:1', protocol: 'websocket' });
+    let called = false;
+    edge.onSyncComplete(() => { throw new Error('syncComplete crash'); });
+    edge.onSyncComplete(() => { called = true; });
+    edge.receive(1, 'x'); // triggers syncComplete (lag=0) when connected
+    expect(called).toBe(true); // second handler still fires
+    await edge.disconnect();
+  });
+
+  it('error handler error isolation', () => {
+    const edge = new EdgeReplica();
+    let called = false;
+    edge.onError(() => { throw new Error('error handler crash'); });
+    edge.onError(() => { called = true; });
+    (edge as any)._emitError(new Error('test'));
+    expect(called).toBe(true);
+  });
+
+  it('onSyncComplete only fires once (unsubscribe)', async () => {
+    const edge = new EdgeReplica();
+    await edge.connect({ url: 'ws://localhost:1', protocol: 'websocket' });
+    let count = 0;
+    const unsub = edge.onSyncComplete(() => { count++; });
+    edge.receive(1, 'first');
+    unsub();
+    edge.receive(2, 'second');
+    expect(count).toBe(1);
+    await edge.disconnect();
+  });
+
+  it('getSyncStatus returns fresh snapshot', () => {
+    const edge = new EdgeReplica();
+    const s1 = edge.getSyncStatus();
+    expect(s1.state).toBe('disconnected');
+    edge.receive(5, 'data'); // still disconnected
+    const s2 = edge.getSyncStatus();
+    // disconnected → receive does nothing
+    expect(s2.receivedCount).toBe(0);
+  });
+});

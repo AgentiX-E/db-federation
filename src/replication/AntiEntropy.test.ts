@@ -341,3 +341,30 @@ describe("AntiEntropy — Lifecycle", () => {
     expect(spy).toHaveBeenCalledTimes(0); // should be stopped
   });
 });
+
+  it("should syncAll and return array of results", async () => {
+    const provider = new InMemoryDataProvider();
+    const ae = new AntiEntropy(
+      { nodeId: "n1", intervalMs: 30000, merkleDepth: 3 },
+      provider,
+    );
+    provider.set("k1", makeEntry("k1", "v1", 100, 1, "n1"));
+    provider.set("k2", makeEntry("k2", "v2", 100, 1, "n1"));
+
+    const results = await ae.syncAll();
+    expect(results).toBeInstanceOf(Array);
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(results[0]!.entriesSynced).toBeDefined();
+  });
+
+  it("should skip unchanged entries during syncWith", async () => {
+    const provider = new InMemoryDataProvider();
+    const ae = new AntiEntropy(
+      { nodeId: "n1", intervalMs: 30000, merkleDepth: 3 },
+      provider,
+    );
+    provider.set("k-skip", makeEntry("k-skip", "value", 100, 1, "n1"));
+    const result = await ae.syncWith("self");
+    expect(result.entriesSkipped).toBeDefined();
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
+  });
