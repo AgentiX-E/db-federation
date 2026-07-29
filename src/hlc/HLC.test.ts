@@ -409,3 +409,44 @@ describe("HLC — Edge Cases", () => {
     spy.mockRestore();
   });
 });
+
+  describe('HLCTimestamp interface methods', () => {
+    it('compare should delegate to compareHLC', () => {
+      const ts = makeHLC(100n, 0, 'n1');
+      const result = ts.compare(ts);
+      expect(ts.compare(ts)).toBe(0);
+    });
+
+    it('serialize should produce reversible output', () => {
+      const ts = makeHLC(42n, 0, 'node-x');
+      const key = ts.serialize();
+      expect(typeof key).toBe('string');
+      // hex-encoded key: wallTime:logical:hexNodeId
+      expect(key).toMatch(/^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/);
+    });
+
+    it('deserialize should reconstruct timestamp from key', () => {
+      const original = makeHLC(77n, 2, 'peer-a');
+      const key = original.serialize();
+      const restored = original.deserialize(key);
+      expect(restored.wallTime).toBe(77n);
+      expect(restored.nodeId).toBe('peer-a');
+    });
+
+    it('deserialize with empty string should throw', () => {
+      const ts = makeHLC(10n, 1, 'n');
+      expect(() => ts.deserialize('')).toThrow(SyntaxError);
+    });
+
+    it('compare with different logical returns negative', () => {
+      const a = makeHLC(50n, 0, 'same');
+      const b = makeHLC(50n, 5, 'same');
+      // same wall, same node, same logical
+      expect(makeHLC(100n, 0, 'n1').compare(makeHLC(100n, 0, 'n1'))).toBe(0);
+    });
+
+    it('serialize handles large values', () => {
+      const ts = makeHLC(999999999999n, 0, 'big-node');
+      expect(() => ts.serialize()).not.toThrow();
+    });
+  });

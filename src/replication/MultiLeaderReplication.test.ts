@@ -354,3 +354,28 @@ describe("MultiLeaderReplication — Events", () => {
     fix.cleanup();
   });
 });
+
+  // ── Additional coverage for low-coverage paths ────────────────
+  describe('MultiLeaderReplication event handling', () => {
+    it('onHighLag registers and unregisters listeners', () => {
+      const outbox = { add: vi.fn() } as any;
+      const transport = { send: vi.fn() } as any;
+      const hlcNew = new HLC('n-hl');
+      const mlr = new MultiLeaderReplication({
+        transport,
+        outbox,
+        config: makeMultiDcConfig('n-hl'),
+        hlc: hlcNew,
+      });
+      let callCount = 0;
+      const unsub = mlr.onHighLag(() => { callCount++; });
+      expect(typeof unsub).toBe('function');
+
+      (mlr as any).emitter.emit('high-lag', 'target-1', 5000);
+      expect(callCount).toBe(1);
+
+      unsub();
+      (mlr as any).emitter.emit('high-lag', 'target-2', 10000);
+      expect(callCount).toBe(1);
+    });
+  });
