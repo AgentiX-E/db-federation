@@ -32,3 +32,9 @@ npm-debug.log*
 # Coverage
 coverage/
 *.tsbuildinfo
+
+# I10 — Cross-repo CI artifacts
+merged-coverage/
+test-results/
+cross-repo-e2e-results/
+coverage-dashboard/

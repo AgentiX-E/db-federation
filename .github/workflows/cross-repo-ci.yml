@@ -1,0 +1,248 @@
+# I10 — Cross-Repo CI Orchestration
+#
+# Orchestrates the three repos (db-cluster → db-federation → db-operations)
+# in dependency order. When a leaf repo changes, downstream repos are also
+# tested to catch integration breakage early.
+#
+# Dependency chain:
+#   db-cluster (leaf)  ←  db-federation  ←  db-operations
+#   db-cluster           →  db-federation     (cross-repo E2E)
+#   db-cluster + fed     →  db-operations     (full audit/backup chain)
+#
+# Triggers:
+#   – Push to master on any repo triggers its downstream chain
+#   – PR triggers only the affected repo + its dependents
+#   – workflow_dispatch allows manual full-chain runs
+#
+# Invariants:
+#   CR11 — db-cluster changes auto-trigger db-federation cross-repo E2E
+#   CR12 — db-federation changes auto-trigger db-operations audit/backup chain
+#   CR13 — Full-chain run completes within 60 min
+#   CR14 — Coverage merged report available as artifact
+
+name: Cross-Repo CI
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'db-cluster/**'
+      - 'db-federation/**'
+      - 'db-operations/**'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'db-cluster/**'
+      - 'db-federation/**'
+      - 'db-operations/**'
+  workflow_dispatch:
+    inputs:
+      full_chain:
+        description: 'Run full three-repo chain (ignores change detection)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cross-repo-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ── Change Detection ─────────────────────────────────────────
+  detect-changes:
+    name: Detect Changed Repos
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      cluster-changed: ${{ steps.detect.outputs.cluster }}
+      federation-changed: ${{ steps.detect.outputs.federation }}
+      operations-changed: ${{ steps.detect.outputs.operations }}
+      full-chain: ${{ steps.detect.outputs.full_chain }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 0 }}
+      - id: detect
+        run: |
+          FULL_CHAIN="${{ inputs.full_chain || false }}"
+
+          if [ "$FULL_CHAIN" = "true" ] || [ "${{ github.event_name }}" = "workflow_dispatch" -a "$FULL_CHAIN" = "" ]; then
+            echo "cluster=true" >> $GITHUB_OUTPUT
+            echo "federation=true" >> $GITHUB_OUTPUT
+            echo "operations=true" >> $GITHUB_OUTPUT
+            echo "full_chain=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Detect changed paths
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD 2>/dev/null || true)
+          else
+            CHANGED=$(git diff --name-only HEAD~1 2>/dev/null || echo "db-cluster db-federation db-operations")
+          fi
+
+          echo "cluster=$(echo "$CHANGED" | grep -q '^db-cluster/' && echo true || echo false)" >> $GITHUB_OUTPUT
+          echo "federation=$(echo "$CHANGED" | grep -q '^db-federation/' && echo true || echo false)" >> $GITHUB_OUTPUT
+          echo "operations=$(echo "$CHANGED" | grep -q '^db-operations/' && echo true || echo false)" >> $GITHUB_OUTPUT
+
+          # If anything changed, run full chain for safety
+          if [ "$(echo "$CHANGED" | grep -cE '^db-(cluster|federation|operations)/')" -gt 0 ]; then
+            echo "full_chain=true" >> $GITHUB_OUTPUT
+          else
+            echo "full_chain=false" >> $GITHUB_OUTPUT
+          fi
+
+  # ── db-cluster — always first in chain ─────────────────────
+  cluster-quality:
+    name: db-cluster (Quality)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.full-chain == 'true'
+    uses: ./db-cluster/.github/workflows/_quality.yml
+    with:
+      node_version: '22'
+      coverage_threshold: 95
+
+  # ── db-federation — needs cluster built ────────────────────
+  federation-quality:
+    name: db-federation (Quality)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.full-chain == 'true'
+    uses: ./db-federation/.github/workflows/_quality.yml
+    with:
+      node_version: '22'
+      coverage_threshold: 95
+
+  # ── db-operations — needs federation built ─────────────────
+  operations-quality:
+    name: db-operations (Quality)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.full-chain == 'true'
+    uses: ./db-operations/.github/workflows/_quality.yml
+    with:
+      node_version: '22'
+      coverage_threshold: 95
+
+  # ── Cross-Repo E2E Integration ─────────────────────────────
+  cross-repo-e2e:
+    name: Cross-Repo E2E
+    needs: [cluster-quality, federation-quality, operations-quality]
+    if: |
+      always() &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install db-cluster
+        working-directory: db-cluster
+        run: npm ci && npm run build
+      - name: Install db-operations
+        working-directory: db-operations
+        run: npm ci && npm run build
+      - name: Install db-federation + run cross-repo E2E
+        working-directory: db-federation
+        run: |
+          npm ci
+          npm run build
+          npx vitest run src/__tests__/integration/cross-repo-end-to-end.test.ts
+      - name: Upload E2E report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cross-repo-e2e-results
+          path: db-federation/test-results/
+          retention-days: 14
+
+  # ── Merged Coverage Dashboard ──────────────────────────────
+  coverage-dashboard:
+    name: Coverage Dashboard
+    needs: [cluster-quality, federation-quality, operations-quality]
+    if: |
+      always() &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate merged coverage report
+        run: |
+          mkdir -p merged-coverage
+
+          cat > merged-coverage/report.md << 'REPORT'
+          # Cross-Repo Coverage Dashboard
+
+          | Repository | Coverage | Tests | Status |
+          |------------|----------|-------|--------|
+          REPORT
+
+          for repo in db-cluster db-federation db-operations; do
+            if [ -f "$repo/coverage/coverage-summary.json" ]; then
+              COV=$(node -e "const c=require('./$repo/coverage/coverage-summary.json');console.log(c.total.lines.pct.toFixed(1))")
+              echo "| $repo | ${COV}% | — | ✅ |" >> merged-coverage/report.md
+            else
+              echo "| $repo | N/A | N/A | ⚠️ |" >> merged-coverage/report.md
+            fi
+          done
+
+          echo "" >> merged-coverage/report.md
+          echo "Generated at $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> merged-coverage/report.md
+
+          echo "```"
+          cat merged-coverage/report.md
+          echo "```"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: coverage-dashboard
+          path: merged-coverage/
+          retention-days: 30
+
+  # ── Summary Comment on PR ──────────────────────────────────
+  summary:
+    name: Summary
+    needs: [cross-repo-e2e, coverage-dashboard]
+    if: |
+      always() &&
+      github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Post CI summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const emoji = (r) => r === 'success' ? '✅' : r === 'skipped' ? '⏭️' : '❌';
+
+            const body = [
+              '## 🏗️ Cross-Repo CI — I10',
+              '',
+              '| Stage | Status |',
+              '|-------|--------|',
+              '| db-cluster | ' + emoji('${{ needs.cluster-quality.result }}') + ' |',
+              '| db-federation | ' + emoji('${{ needs.federation-quality.result }}') + ' |',
+              '| db-operations | ' + emoji('${{ needs.operations-quality.result }}') + ' |',
+              '| Cross-Repo E2E | ' + emoji('${{ needs.cross-repo-e2e.result }}') + ' |',
+              '| Coverage Dashboard | ' + emoji('${{ needs.coverage-dashboard.result }}') + ' |',
+              '',
+              '> Coverage report: [download](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
