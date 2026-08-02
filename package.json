@@ -1,6 +1,6 @@
 {
   "name": "@agentix-e/db-federation",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Database federation layer for AgentiX-E",
   "type": "module",
   "private": false,

@@ -56,4 +56,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - F2 chaos P95 threshold — relaxed from 15ms to 25ms for shared-CPU LMDB contention
 - ResolvedCDCPipelineConfig type — transport field made optional (receiver side may have none)
 
+[1.0.0]: https://github.com/AgentiX-E/db-federation/releases/tag/v1.0.0
 [0.1.0]: https://github.com/AgentiX-E/db-federation/releases/tag/v0.1.0
+
+## [1.0.0] — 2026-08-02
+
+### Added
+
+- **Cross-repo E2E stress resilience tests** — 5 integration tests validating
+  BackupVerifier checksum determinism, 5-node partition recovery, SessionManager
+  cross-cluster survival, cross-repo idempotency, and end-to-end dedup latency.
+  (I9 — commit `54eaf6e`)
+- **Cross-repo CI/CD pipeline** (`cross-repo-ci.yml`) — change-detection triggers
+  downstream repositories, unified coverage dashboard, pre-push hooks. (I10)
+- **Heavy-load performance tests** — 6 tests: sequential proposals, concurrent sessions,
+  100K outbox sync, mixed ops, 10K audit cycle, burst load degradation. (I11)
+- **Security audit pipeline** (`_security.yml`) — npm audit, secret scanning, license
+  compliance enforced in CI gate. (I12)
+- **ADR template** — standardized ADR format across all three repositories. (I14)
+- **ADR-003** — Cross-Repository Outbox Synchronization: exactly-once delivery via
+  SessionManager, DedupRing, HLC, and BackupVerifier.
+- **ADR-004** — Federation Pipeline: stage-based composable processing with
+  PipelineBuilder, per-stage metrics, declarative error policies.
+- **API Reference** (`docs/api-reference.md`) — FederationEngine, OutboxStore,
+  DedupRing, HLC, PipelineBuilder, SessionManager, BackupVerifier.
+- **Cross-Repo Architecture Panorama** (`docs/cross-repo-architecture.md`) —
+  mermaid topology diagrams, data flow, module map across all three repos.
+- **Iteration Index** (`docs/ITERATIONS.md`) — I1 through I16 with test totals,
+  coverage, ADR inventory, and commit hashes.
+- **I10, I12, I13, I15 documentation** — CI pipeline, security audit, observability
+  stack, and final verification reports.
+
+### Security
+
+- npm audit gate in CI (blocks PRs on HIGH/CRITICAL vulnerabilities).
+- Secret scanning (git-secrets pattern matching).
+- License compliance check (OSI-approved licenses only).
+- SECURITY.md with vulnerability reporting SLA and supported version policy.
