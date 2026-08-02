@@ -36,3 +36,5 @@
 - [I10 CI/CD Pipeline](I10-CROSS-REPO-CI.md)
 - [I12 Security Audit](I12-SECURITY-AUDIT.md)
 - [I13 Observability](I13-OBSERVABILITY.md)
+
+| I16 | Release readiness (v1.0.0) | all | 0 | — | `6c5fe0d` / `328aace` / `17c26b8` |
