@@ -34,6 +34,9 @@ export default defineConfig({
       "@agentix-e/db-cluster": path.resolve(workspaceRoot, "db-cluster", "src"),
       "@agentix-e/db-federation": path.resolve(__dirname, "src"),
       "@agentix-e/db-operations": path.resolve(workspaceRoot, "db-operations", "packages"),
+      "@agentix-e/db-operations-chaosengine": path.resolve(
+        workspaceRoot, "db-operations", "packages", "chaosengine", "src",
+      ),
     },
   },
 });
