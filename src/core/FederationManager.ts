@@ -3,9 +3,14 @@
  *
  * Owns the full lifecycle:
  *   1. MultiLeaderReplication — cross-DC write replication
- *   2. HealthMonitor — periodic health checks + lag tracking
- *   3. (Phase 3) CDCManager — change data capture
- *   4. (Phase 3) AntiEntropy — Merkle tree reconciliation
+ *   2. CDCManager — change data capture for event streaming (MA1-MA5)
+ *   3. DCSplitBrainDetector — detects and recovers from DC split-brain (MA6-MA9)
+ *   4. ConflictResolver — resolves write conflicts on the replication hot path
+ *   5. AntiEntropy — Merkle tree reconciliation for eventual consistency
+ *   6. HealthMonitor — periodic health checks + lag tracking
+ *
+ * The replicate() method is now the write hot path:
+ *   conflict resolution → outbox → replication → CDC event
  *
  * Consumers (sqlvec-db, graphvec-db) register via registerConsumer() to:
  *   - Receive replicated entries for local Raft proposal
@@ -21,6 +26,11 @@ import type { IOutboxStore } from "../interfaces/outbox/IOutboxStore";
 import type { IHLCTimestamp } from "../interfaces/hlc/IHLCTimestamp";
 import { HLC } from "../hlc/HLC";
 import { HealthMonitor, type FederationHealth, type HealthMonitorConfig } from "../monitoring/HealthMonitor";
+import { CDCManager, type CDCTarget, type CDCEvent } from "./CDCManager";
+import { DCSplitBrainDetector, type SplitBrainEvent } from "./DCSplitBrainDetector";
+import { ConflictResolver, type ConflictValue, type ConflictStrategy } from "../replication/ConflictResolver";
+import { AntiEntropy } from "../replication/AntiEntropy";
+import type { DataEntry } from "../replication/AntiEntropy";
 import { EventEmitter } from "events";
 
 // ── Interfaces (defined here for Phase 2, will move to separate files) ──
@@ -92,9 +102,14 @@ export class FederationManager {
   private consumers: IFederationConsumer[] = [];
   private _started = false;
 
-  // Phase 3 stubs
-  private _cdcManager: ICDCManager | null = null;
-  private _antiEntropy: IAntiEntropy | null = null;
+  // Multi-Active production components
+  private _cdcManager: CDCManager | null = null;
+  private _splitBrainDetector: DCSplitBrainDetector | null = null;
+  private _conflictResolver: ConflictResolver | null = null;
+  private _antiEntropy: AntiEntropy | null = null;
+
+  // Local key-value store for AntiEntropy (MA10-MA12)
+  private readonly localStore = new Map<string, { key: string; value: string; hlc: { wallTime: number; logical: number; nodeId: string }; nodeId: string }>();
 
   constructor(
     private readonly replication: IMultiLeaderReplication,
@@ -107,15 +122,82 @@ export class FederationManager {
 
   /**
    * Start the federation manager.
-   * This starts:
+   * Initializes all sub-systems:
    *   1. MultiLeaderReplication (outbox workers per target)
-   *   2. HealthMonitor (periodic health checks)
+   *   2. CDCManager (change data capture)
+   *   3. DCSplitBrainDetector (heartbeat-based split-brain detection)
+   *   4. ConflictResolver (LWW + CRDT strategies)
+   *   5. AntiEntropy (Merkle tree reconciliation)
+   *   6. HealthMonitor (periodic health checks)
    */
-  async start(): Promise<void> {
+  async start(cdcTargets?: CDCTarget[]): Promise<void> {
     if (this._started) return;
 
+    // 1. Start replication engine
     await this.replication.start(this.config.replicationConfig);
+
+    // 2. Start CDC Manager
+    this._cdcManager = new CDCManager({
+      nodeId: this.config.nodeId,
+      hlc: this.hlc,
+    });
+    await this._cdcManager.start(cdcTargets ?? []);
+
+    // 3. Start Split-Brain Detector
+    this._splitBrainDetector = new DCSplitBrainDetector({
+      nodeId: this.config.nodeId,
+      dcId: this.config.dc,
+      hlc: this.hlc,
+    });
+    this._splitBrainDetector.start();
+
+    // 4. Initialize ConflictResolver
+    this._conflictResolver = new ConflictResolver(this.config.nodeId);
+
+    // 5. Start AntiEntropy with data provider
+    const localStore = this.localStore;
+    const nodeId = this.config.nodeId;
+    this._antiEntropy = new AntiEntropy(
+      { nodeId: this.config.nodeId, merkleDepth: 4, intervalMs: 5000 },
+      {
+        async getRange(start: string, end: string): Promise<DataEntry[]> {
+          const entries: DataEntry[] = [];
+          for (const [, e] of localStore) {
+            if (e.key >= start && e.key <= end) {
+              entries.push(e);
+            }
+          }
+          return entries;
+        },
+        async getEntriesAfter(afterKey: string, limit: number): Promise<DataEntry[]> {
+          const sorted = Array.from(localStore.values())
+            .sort((a, b) => a.key.localeCompare(b.key));
+          const idx = sorted.findIndex((e) => e.key > afterKey);
+          return sorted.slice(idx, idx + limit);
+        },
+        async get(key: string): Promise<DataEntry | null> {
+          return localStore.get(key) ?? null;
+        },
+        async apply(key: string, value: string): Promise<void> {
+          localStore.set(key, {
+            key,
+            value,
+            hlc: { wallTime: Date.now(), logical: 0, nodeId },
+            nodeId,
+          });
+        },
+      },
+      this._conflictResolver,
+    );
+
+    // 6. Start HealthMonitor
     this.healthMonitor.start();
+
+    // Listen for split-brain events
+    this._splitBrainDetector.onSplitBrainDetected((event: SplitBrainEvent) => {
+      this.emitter.emit("split-brain-detected", event);
+    });
+
     this._started = true;
   }
 
@@ -125,14 +207,108 @@ export class FederationManager {
   async stop(): Promise<void> {
     this._started = false;
     this.healthMonitor.stop();
+    this._splitBrainDetector?.stop();
+    await this._cdcManager?.stop();
     await this.replication.stop();
   }
 
   /**
    * Replicate data to all targets.
+   * Hot path: conflict resolution → local store → outbox → CDC event.
+   *
+   * @param key — The data key for conflict resolution
+   * @param value — The data to replicate
+   * @param shardId — Target shard (optional, uses 0 if unspecified)
+   * @param type — Operation type ("insert", "update", "delete", etc.)
    */
-  async replicate(shardId: number, data: string, type: string): Promise<{ msgId: string }> {
-    return this.replication.replicate(shardId, data, type);
+  async replicate(
+    shardIdOrKey: number | string,
+    valueOrData: string,
+    type: string,
+    remoteValue?: ConflictValue,
+  ): Promise<{ msgId: string }> {
+    // Default params when called with old signature (shardId, data, type)
+    const key = typeof shardIdOrKey === "string" ? shardIdOrKey : `key:${shardIdOrKey}:${Date.now()}`;
+    const data = valueOrData;
+    const shardId = typeof shardIdOrKey === "number" ? shardIdOrKey : 0;
+
+    // MA10: Conflict resolution on the write hot path
+    const now = this.hlc.now();
+    const hlcSnapshot: IHLCTimestamp = {
+      wallTime: now.wallTime,
+      logical: now.logical,
+      nodeId: now.nodeId,
+      compare: (other: IHLCTimestamp) =>
+        now.wallTime > other.wallTime ? 1 : now.wallTime < other.wallTime ? -1 : now.logical > other.logical ? 1 : -1,
+      serialize: () => `${Number(now.wallTime)}:${now.logical}:${now.nodeId}`,
+      deserialize: (data: string): IHLCTimestamp => {
+        const [w, l, n] = data.split(":");
+        const wt = BigInt(w ?? "0");
+        const lo = Number(l ?? "0");
+        const no = n ?? "";
+        return {
+          wallTime: wt,
+          logical: lo,
+          nodeId: no,
+          compare: (other: IHLCTimestamp) =>
+            wt > other.wallTime ? 1 : wt < other.wallTime ? -1 : lo > other.logical ? 1 : -1,
+          serialize: () => `${Number(wt)}:${lo}:${no}`,
+          deserialize: (d: string) => hlcSnapshot.deserialize!(d),
+        };
+      },
+    };
+
+    if (remoteValue && this._conflictResolver) {
+      const local: ConflictValue = {
+        key,
+        value: data,
+        hlc: hlcSnapshot,
+        nodeId: this.config.nodeId,
+      };
+
+      await this._conflictResolver.resolve(key, local, remoteValue);
+      // Notify consumers of conflict
+      for (const consumer of this.consumers) {
+        await consumer.onConflict({
+          key,
+          localValue: local.value,
+          remoteValue: remoteValue.value,
+          localHlc: local.hlc,
+          remoteHlc: remoteValue.hlc,
+          sourceDc: remoteValue.nodeId,
+        });
+      }
+    }
+
+    // Store locally (for AntiEntropy)
+    this.localStore.set(key, {
+      key,
+      value: data,
+      hlc: { wallTime: Number(now.wallTime), logical: now.logical, nodeId: now.nodeId },
+      nodeId: this.config.nodeId,
+    });
+
+    // Record split-brain heartbeat
+    this._splitBrainDetector?.recordApply();
+
+    // Replicate via outbox
+    const result = await this.replication.replicate(shardId, data, type);
+
+    // Capture CDC event (MA1-MA5)
+    if (this._cdcManager?.isStarted()) {
+      await this._cdcManager.capture({
+        eventId: result.msgId,
+        key,
+        value: data,
+        type: type as "insert" | "update" | "delete",
+        sourceNodeId: this.config.nodeId,
+        sourceDc: this.config.dc,
+        hlcTimestamp: { wallTime: Number(now.wallTime), logical: now.logical, nodeId: now.nodeId },
+        appliedAt: Date.now(),
+      });
+    }
+
+    return result;
   }
 
   /**
@@ -143,21 +319,41 @@ export class FederationManager {
   }
 
   /**
-   * Get the CDC manager (Phase 3).
+   * Get the CDC manager.
    */
-  getCDC(): ICDCManager {
+  getCDC(): CDCManager {
     if (!this._cdcManager) {
-      throw new Error(NOT_IMPLEMENTED_YET);
+      throw new Error("CDCManager not started. Call start() first.");
     }
     return this._cdcManager;
   }
 
   /**
-   * Get the anti-entropy engine (Phase 3).
+   * Get the split-brain detector.
    */
-  getAntiEntropy(): IAntiEntropy {
+  getSplitBrainDetector(): DCSplitBrainDetector {
+    if (!this._splitBrainDetector) {
+      throw new Error("DCSplitBrainDetector not started. Call start() first.");
+    }
+    return this._splitBrainDetector;
+  }
+
+  /**
+   * Get the conflict resolver.
+   */
+  getConflictResolver(): ConflictResolver {
+    if (!this._conflictResolver) {
+      throw new Error("ConflictResolver not initialized. Call start() first.");
+    }
+    return this._conflictResolver;
+  }
+
+  /**
+   * Get the anti-entropy engine.
+   */
+  getAntiEntropy(): AntiEntropy {
     if (!this._antiEntropy) {
-      throw new Error(NOT_IMPLEMENTED_YET);
+      throw new Error("AntiEntropy not started. Call start() first.");
     }
     return this._antiEntropy;
   }
@@ -209,5 +405,20 @@ export class FederationManager {
    */
   onHighLag(callback: (targetNodeId: string, lagMs: number) => void): () => void {
     return this.healthMonitor.onHighLag(callback);
+  }
+
+  /**
+   * Register a split-brain detection callback.
+   */
+  onSplitBrainDetected(callback: (event: SplitBrainEvent) => void): () => void {
+    this.emitter.on("split-brain-detected", callback);
+    return () => { this.emitter.off("split-brain-detected", callback); };
+  }
+
+  /**
+   * Get the local key-value store for AntiEntropy reconciliation.
+   */
+  getLocalStore(): Map<string, { key: string; value: string; hlc: { wallTime: number; logical: number; nodeId: string } }> {
+    return this.localStore;
   }
 }
