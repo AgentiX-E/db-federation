@@ -250,7 +250,7 @@ describe("FederationManager — HLC Access", () => {
 });
 
 describe("FederationManager — Stubs (Phase 3)", () => {
-  it("should throw on getCDC before Phase 3", () => {
+  it("should return CDC after I18 — no longer stub", async () => {
     const repl = mockReplication();
     const fm = new FederationManager(repl, {
       nodeId: "node-a",
@@ -260,10 +260,13 @@ describe("FederationManager — Stubs (Phase 3)", () => {
       outbox: mockOutbox(),
     });
 
-    expect(() => fm.getCDC()).toThrow("Not implemented in Phase 2");
+    // CDCManager is lazily initialized on start()
+    await fm.start();
+    expect(fm.getCDC()).toBeDefined();
+    await fm.stop();
   });
 
-  it("should throw on getAntiEntropy before Phase 3", () => {
+  it("should return AntiEntropy after I18 — no longer stub", async () => {
     const repl = mockReplication();
     const fm = new FederationManager(repl, {
       nodeId: "node-a",
@@ -273,6 +276,9 @@ describe("FederationManager — Stubs (Phase 3)", () => {
       outbox: mockOutbox(),
     });
 
-    expect(() => fm.getAntiEntropy()).toThrow("Not implemented in Phase 2");
+    // AntiEntropy is lazily initialized on start()
+    await fm.start();
+    expect(fm.getAntiEntropy()).toBeDefined();
+    await fm.stop();
   });
 });
