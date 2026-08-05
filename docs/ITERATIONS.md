@@ -38,3 +38,43 @@
 - [I13 Observability](I13-OBSERVABILITY.md)
 
 | I16 | Release readiness (v1.0.0) | all | 0 | — | `6c5fe0d` / `328aace` / `17c26b8` |
+
+---
+
+## v1.1.0 Iterations (I17–I20)
+
+| Iteration | Description | Repo(s) | Tests | Coverage | Commit |
+|-----------|-------------|---------|------:|----------|--------|
+| I17 | Chaos Unification | db-operations + db-cluster + db-federation | 109 | ≥95% | `c71dccd` / `d8ff4e1` / `ad41b70` |
+| I18 | Multi-Active Production Readiness (C1) | db-federation | 22 | ≥95% | `fedf4da` |
+| I19 | Regression + Silent Test Mode | db-cluster + db-federation | 1091 | ≥95% | `6c4cfa2` / `6586493` |
+| I20 | v1.1.0 Release | all | — | — | — |
+
+### I17: Chaos Unification
+
+Replaced ~2700 lines of duplicated fault-injection code with a single ChaosEngineV2
+in db-operations + adapters in each sibling repo.
+
+- **ChaosEngineV2** (468 lines) — declarative DAG scenarios, 8 fault types, SeededRNG
+- **RaftChaosAdapter** — `raft:<nodeId>` transport convention, 27 tests
+- **FederationChaosAdapter** — `federation:<dcId>:<nodeId>`, wildcard support, 34 tests
+
+### I18: Multi-Active Production Readiness
+
+Closed all 4 critical C1 gaps identified in code audit:
+1. CDCManager (224 lines) — per-target CDCEngine workers, backpressure
+2. DCSplitBrainDetector (324 lines) — HLC chain divergence heuristic, auto/manual recovery
+3. ConflictResolver on write hot path in FederationManager.replicate()
+4. AntiEntropy integration with localStore-backed DataProvider
+
+### I19: Regression & Test Infrastructure
+
+- db-cluster: vitest.setup.ts silences pino logs → 28s (was 10min+ timeout)
+- db-federation: updated stub tests for I18 interfaces
+- Full suite: 85 files / 1091 tests all passing
+
+### I20: v1.1.0 Release
+
+- All three repos bumped to v1.1.0
+- CHANGELOG entries for I17-I20
+- npm pack verified for all packages

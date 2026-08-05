@@ -5,6 +5,38 @@ All notable changes to @agentix-e/db-federation will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-08-05
+
+### Added
+
+- **I18 Multi-Active Production Readiness (C1)** — 4 gaps closed
+  - CDCManager: change data capture with buffer, backpressure, ICDCManager interface (224 lines, 7 tests)
+  - DCSplitBrainDetector: heartbeat-based HLC chain divergence detection, auto/manual recovery (324 lines, 6 tests)
+  - ConflictResolver on write hot path in FederationManager.replicate()
+  - AntiEntropy integration with localStore-backed DataProvider
+  - 22 comprehensive tests (MA1-MA15)
+- **I17 Chaos Unification** — FederationChaosAdapter bridging IPartitioningTransport to IChaosTransport
+  - Transport ID convention: `federation:<dcId>:<nodeId>` with wildcard support
+  - FederationChaosScenarios builder: dcPartition, crashNode, replicationLag, messageLoss, conflictStorm, cascadingFailure
+  - 34 chaos tests (FCHAOS1-2 + E2E)
+- **I9 Cross-Repo Stress Resilience** — 5 cross-repo stress tests
+- **I10 Unified CI/CD** — dependency-gated CI pipeline
+- **I11 Performance Testing** — heavy-load stress tests
+
+### Fixed
+
+- **I19** FederationManager stub tests updated for I18 — getCDC/getAntiEntropy now require start()
+
+### Security
+
+- **I12 Security Audit Pipeline** — npm audit, secret scan, license check
+
+### Internal
+
+- **I14 Documentation** — ADRs 007-009, API reference, architecture panorama, iteration index
+- **I15 Convergence Verification** — 96 non-perf tests validated
+- **I16 Release Readiness** — v1.0.0, CHANGELOG entries I8-I16, npm pack verified
+
 ## [0.1.0] — 2026-07-26
 
 ### Added
