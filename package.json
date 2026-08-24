@@ -29,7 +29,7 @@
   ],
   "dependencies": {
     "lmdb": "^3.2.6",
-    "zeromq": "^6.2.1"
+    "zeromq": "^6.6.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",
