@@ -7,6 +7,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
+    silent: true,
+    setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.test.ts", "src/**/*.spec.ts"],
     coverage: {
       provider: "v8",
@@ -18,7 +20,10 @@ export default defineConfig({
         "src/index.ts",
         "src/index.test.ts",
         "src/interfaces/**",
+        "src/routing/index.ts",
         "src/transport/TcpSecureTransport.ts",
+        // Performance / stress benchmarks (not unit-tested, slow + log-heavy)
+        "src/__tests__/performance/**",
       ],
       reporter: ["text", "json-summary", "lcov"],
       thresholds: {

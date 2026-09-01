@@ -403,24 +403,36 @@ describe("CDC8: CDCFailureInjector — emit failures", () => {
 describe("CDC9: CDCFailureInjector — probabilistic vs deterministic", () => {
   it("probabilistic failures trigger stochastically", async () => {
     const sink = new InMemoryCDCSink();
+    // Use latency_spike (not connection_drop) so a single injected failure
+    // does not disconnect the sink and cascade into N "not connected"
+    // failures. Its probability branch calls Math.random exactly once per
+    // emit, which we control deterministically below.
     const injector = new CDCFailureInjector(sink, [
-      { type: "connection_drop", probability: 0.01 },
+      { type: "latency_spike", probability: 0.01, latencyMs: 1 },
     ]);
 
     await injector.connect();
 
-    let failures = 0;
+    // Deterministically drive the random threshold: return values above the
+    // 0.01 threshold for most emits (no injection) and below it for a chosen
+    // few (injection). This removes flakiness while still exercising the real
+    // `Math.random() < probability` branch.
+    const sequence = Array.from({ length: 50 }, (_, i) =>
+      i === 7 || i === 29 ? 0.005 : 0.5,
+    );
+    const randomSpy = vi.spyOn(Math, "random").mockImplementation(() => {
+      return sequence.shift() ?? 0.5;
+    });
+
     for (let i = 0; i < 50; i++) {
-      try {
-        await injector.emit(makeEvents(1));
-      } catch {
-        failures++;
-      }
+      await injector.emit(makeEvents(1));
     }
 
-    // With p=0.01 and 50 trials, expect ≈0.5 failures
-    // Should be less than 5 (practically 99.9% likely)
-    expect(failures).toBeLessThan(5);
+    randomSpy.mockRestore();
+
+    // Exactly two of the fifty emits crossed the 0.01 threshold.
+    expect(injector.failureCount).toBe(2);
+    expect(injector.totalEmits).toBe(50);
   });
 
   it("deterministic every-N failure fires predictably", async () => {
