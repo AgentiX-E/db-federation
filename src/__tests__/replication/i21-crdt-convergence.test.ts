@@ -707,3 +707,74 @@ describe("CRT14: CRDT state equivalence helpers", () => {
     expect(orSetsEqual(a, d)).toBe(false);
   });
 });
+
+// ── CRT15: Fault Detection (dependency-injected violating merge) ──
+//
+// The verifier's core value is two-sided: it must PASS correct CRDTs *and*
+// FAIL violating ones. The failure-report branches (`associativeFailed++`,
+// `commutativeFailed++`, `idempotentFailed++`, `failures.push`) are physically
+// unreachable with the real CRDTs (each provably satisfies all three laws).
+// To exercise them honestly — without faking coverage — we inject a
+// deliberately law-violating merge per CRDT type and assert the verifier
+// correctly reports the violation.
+
+describe("CRT15: verifier detects law-violating merges", () => {
+  // Each fault merge uses a monotonic counter to inject a unique, order-
+  // dependent mutation on every call — breaking idempotence, commutativity and
+  // associativity simultaneously (non-symmetric + non-idempotent + non-assoc).
+  const makeFaults = () => {
+    let n = 0;
+    return {
+      GCounter: (self: any, _other: any): void => {
+        self.counts[`fault#${++n}`] = 1;
+      },
+      PNCounter: (self: any, _other: any): void => {
+        self.increment(`fault#${++n}`, 1);
+      },
+      LWWRegister: (self: any, _other: any): void => {
+        self.value = `${self.value}#${++n}`;
+      },
+      MVRegister: (self: any, _other: any): void => {
+        self.entries.push({ value: `fault#${++n}`, wallTime: 100000 + n, logical: 0, nodeId: "fault" });
+      },
+      ORSet: (self: any, _other: any): void => {
+        self.add(`fault#${++n}`, `ft${n}`);
+      },
+    };
+  };
+
+  const types = ["GCounter", "PNCounter", "LWWRegister", "MVRegister", "ORSet"] as const;
+  const verify = {
+    GCounter: (v: ConvergenceVerifier) => v.verifyGCounter(),
+    PNCounter: (v: ConvergenceVerifier) => v.verifyPNCounter(),
+    LWWRegister: (v: ConvergenceVerifier) => v.verifyLWWRegister(),
+    MVRegister: (v: ConvergenceVerifier) => v.verifyMVRegister(),
+    ORSet: (v: ConvergenceVerifier) => v.verifyORSet(),
+  };
+
+  for (const type of types) {
+    it(`${type}: reports associativity, commutativity and idempotence violations`, () => {
+      const verifier = new ConvergenceVerifier(42, 50, { [type]: makeFaults()[type] });
+      const report = verify[type](verifier);
+
+      expect(report.associativeFailed, "associativity").toBeGreaterThan(0);
+      expect(report.commutativeFailed, "commutativity").toBeGreaterThan(0);
+      expect(report.idempotentFailed, "idempotence").toBeGreaterThan(0);
+
+      // Each violated law must leave a corresponding failure entry.
+      const laws = report.failures.map((f) => f.law);
+      expect(laws).toContain("associativity");
+      expect(laws).toContain("commutativity");
+      expect(laws).toContain("idempotence");
+    });
+  }
+
+  it("reports zero failures for the real merges (sanity)", () => {
+    const verifier = new ConvergenceVerifier(42, 200);
+    const report = verifier.verifyGCounter();
+    expect(report.associativeFailed).toBe(0);
+    expect(report.commutativeFailed).toBe(0);
+    expect(report.idempotentFailed).toBe(0);
+    expect(report.failures).toEqual([]);
+  });
+});
