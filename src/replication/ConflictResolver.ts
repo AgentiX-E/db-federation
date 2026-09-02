@@ -381,13 +381,23 @@ export class ConflictResolver {
 
   /**
    * Find a custom resolver for the given key.
+   *
+   * A resolver registered with a bare predicate (no tableName nor keyPrefix)
+   * is a fallback that matches any key. Otherwise the first resolver whose
+   * tableName or keyPrefix is a prefix of `key` wins.
    */
   private findCustomResolver(key: string): CustomResolver | null {
     for (const [, entry] of this.customResolvers) {
-      if (entry.predicate.tableName && key.startsWith(entry.predicate.tableName)) {
+      const { tableName, keyPrefix } = entry.predicate;
+      // Bare predicate → unconditional fallback resolver (registered under
+      // the synthesized "__fallback__" key).
+      if (!tableName && !keyPrefix) {
         return entry.resolver;
       }
-      if (entry.predicate.keyPrefix && key.startsWith(entry.predicate.keyPrefix)) {
+      if (tableName && key.startsWith(tableName)) {
+        return entry.resolver;
+      }
+      if (keyPrefix && key.startsWith(keyPrefix)) {
         return entry.resolver;
       }
     }
