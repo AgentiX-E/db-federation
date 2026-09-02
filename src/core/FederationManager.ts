@@ -30,7 +30,7 @@ import { CDCManager, type CDCTarget, type CDCEvent } from "./CDCManager";
 import { DCSplitBrainDetector, type SplitBrainEvent } from "./DCSplitBrainDetector";
 import { ConflictResolver, type ConflictValue, type ConflictStrategy } from "../replication/ConflictResolver";
 import { AntiEntropy } from "../replication/AntiEntropy";
-import type { DataEntry } from "../replication/AntiEntropy";
+import type { DataEntry, DataProvider } from "../replication/AntiEntropy";
 import { EventEmitter } from "events";
 
 // ── Interfaces (defined here for Phase 2, will move to separate files) ──
@@ -155,38 +155,9 @@ export class FederationManager {
     this._conflictResolver = new ConflictResolver(this.config.nodeId);
 
     // 5. Start AntiEntropy with data provider
-    const localStore = this.localStore;
-    const nodeId = this.config.nodeId;
     this._antiEntropy = new AntiEntropy(
       { nodeId: this.config.nodeId, merkleDepth: 4, intervalMs: 5000 },
-      {
-        async getRange(start: string, end: string): Promise<DataEntry[]> {
-          const entries: DataEntry[] = [];
-          for (const [, e] of localStore) {
-            if (e.key >= start && e.key <= end) {
-              entries.push(e);
-            }
-          }
-          return entries;
-        },
-        async getEntriesAfter(afterKey: string, limit: number): Promise<DataEntry[]> {
-          const sorted = Array.from(localStore.values())
-            .sort((a, b) => a.key.localeCompare(b.key));
-          const idx = sorted.findIndex((e) => e.key > afterKey);
-          return sorted.slice(idx, idx + limit);
-        },
-        async get(key: string): Promise<DataEntry | null> {
-          return localStore.get(key) ?? null;
-        },
-        async apply(key: string, value: string): Promise<void> {
-          localStore.set(key, {
-            key,
-            value,
-            hlc: { wallTime: Date.now(), logical: 0, nodeId },
-            nodeId,
-          });
-        },
-      },
+      this.buildDataProvider(this.localStore, this.config.nodeId),
       this._conflictResolver,
     );
 
@@ -199,6 +170,56 @@ export class FederationManager {
     });
 
     this._started = true;
+  }
+
+  /**
+   * Build the AntiEntropy DataProvider backed by the given local store.
+   *
+   * Extracted from `start()` so the four data-access closures are standalone
+   * and independently testable units. The provider is intentionally
+   * self-contained: it reads from and writes to a single `Map` keyed by entry
+   * key. All functions are pure with respect to the store.
+   */
+  private buildDataProvider(
+    localStore: Map<string, DataEntry>,
+    nodeId: string,
+  ): DataProvider {
+    return {
+      async getRange(start: string, end: string): Promise<DataEntry[]> {
+        const entries: DataEntry[] = [];
+        for (const [, e] of localStore) {
+          if (e.key >= start && e.key <= end) {
+            entries.push(e);
+          }
+        }
+        return entries;
+      },
+
+      async getEntriesAfter(afterKey: string, limit: number): Promise<DataEntry[]> {
+        const sorted = Array.from(localStore.values()).sort((a, b) =>
+          a.key.localeCompare(b.key),
+        );
+        const idx = sorted.findIndex((e) => e.key > afterKey);
+        // findIndex returns -1 when no entry is strictly greater than
+        // afterKey; slice(-1, …) would incorrectly wrap around to the last
+        // element, so we must bail out explicitly.
+        if (idx === -1) return [];
+        return sorted.slice(idx, idx + limit);
+      },
+
+      async get(key: string): Promise<DataEntry | null> {
+        return localStore.get(key) ?? null;
+      },
+
+      async apply(key: string, value: string): Promise<void> {
+        localStore.set(key, {
+          key,
+          value,
+          hlc: { wallTime: Date.now(), logical: 0, nodeId },
+          nodeId,
+        });
+      },
+    };
   }
 
   /**
@@ -232,37 +253,16 @@ export class FederationManager {
     const data = valueOrData;
     const shardId = typeof shardIdOrKey === "number" ? shardIdOrKey : 0;
 
-    // MA10: Conflict resolution on the write hot path
+    // MA10: Conflict resolution on the write hot path.
+    // `HLC.now()` already returns a full `IHLCTimestamp` (compare/serialize/
+    // deserialize), so there is no need to hand-roll a redundant snapshot.
     const now = this.hlc.now();
-    const hlcSnapshot: IHLCTimestamp = {
-      wallTime: now.wallTime,
-      logical: now.logical,
-      nodeId: now.nodeId,
-      compare: (other: IHLCTimestamp) =>
-        now.wallTime > other.wallTime ? 1 : now.wallTime < other.wallTime ? -1 : now.logical > other.logical ? 1 : -1,
-      serialize: () => `${Number(now.wallTime)}:${now.logical}:${now.nodeId}`,
-      deserialize: (data: string): IHLCTimestamp => {
-        const [w, l, n] = data.split(":");
-        const wt = BigInt(w ?? "0");
-        const lo = Number(l ?? "0");
-        const no = n ?? "";
-        return {
-          wallTime: wt,
-          logical: lo,
-          nodeId: no,
-          compare: (other: IHLCTimestamp) =>
-            wt > other.wallTime ? 1 : wt < other.wallTime ? -1 : lo > other.logical ? 1 : -1,
-          serialize: () => `${Number(wt)}:${lo}:${no}`,
-          deserialize: (d: string) => hlcSnapshot.deserialize!(d),
-        };
-      },
-    };
 
     if (remoteValue && this._conflictResolver) {
       const local: ConflictValue = {
         key,
         value: data,
-        hlc: hlcSnapshot,
+        hlc: now,
         nodeId: this.config.nodeId,
       };
 
