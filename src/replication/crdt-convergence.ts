@@ -137,7 +137,7 @@ export class ConvergenceVerifier {
       g2b.merge(c);
       g2.merge(g2b.toState());
 
-      if (this.countersEqual(g1, g2)) {
+      if (countersEqual(g1, g2)) {
         report.associativePassed++;
       } else {
         report.associativeFailed++;
@@ -149,7 +149,7 @@ export class ConvergenceVerifier {
       c1.merge(b);
       const c2 = GCounter.fromState(b);
       c2.merge(a);
-      if (this.countersEqual(c1, c2)) {
+      if (countersEqual(c1, c2)) {
         report.commutativePassed++;
       } else {
         report.commutativeFailed++;
@@ -159,7 +159,7 @@ export class ConvergenceVerifier {
       // Idempotence: merge(a, a) === a
       const i1 = GCounter.fromState(a);
       i1.merge(a);
-      if (this.countersEqual(i1, GCounter.fromState(a))) {
+      if (countersEqual(i1, GCounter.fromState(a))) {
         report.idempotentPassed++;
       } else {
         report.idempotentFailed++;
@@ -199,7 +199,7 @@ export class ConvergenceVerifier {
       const g2b = PNCounter.fromState(b);
       g2b.merge(c);
       g2.merge(g2b.toState());
-      if (this.pnCountersEqual(g1, g2)) {
+      if (pnCountersEqual(g1, g2)) {
         report.associativePassed++;
       } else {
         report.associativeFailed++;
@@ -210,13 +210,13 @@ export class ConvergenceVerifier {
       c1.merge(b);
       const c2 = PNCounter.fromState(b);
       c2.merge(a);
-      if (this.pnCountersEqual(c1, c2)) report.commutativePassed++;
+      if (pnCountersEqual(c1, c2)) report.commutativePassed++;
       else report.commutativeFailed++;
 
       // Idempotence
       const i1 = PNCounter.fromState(a);
       i1.merge(a);
-      if (this.pnCountersEqual(i1, PNCounter.fromState(a))) report.idempotentPassed++;
+      if (pnCountersEqual(i1, PNCounter.fromState(a))) report.idempotentPassed++;
       else report.idempotentFailed++;
     }
 
@@ -300,7 +300,7 @@ export class ConvergenceVerifier {
       const g2tmp = MVRegister.fromState(b);
       g2tmp.merge(c);
       g2.merge(g2tmp.toState());
-      if (this.mvRegistersEqual(g1, g2)) report.associativePassed++;
+      if (mvRegistersEqual(g1, g2)) report.associativePassed++;
       else report.associativeFailed++;
 
       // Commutativity
@@ -308,13 +308,13 @@ export class ConvergenceVerifier {
       c1.merge(b);
       const c2 = MVRegister.fromState(b);
       c2.merge(a);
-      if (this.mvRegistersEqual(c1, c2)) report.commutativePassed++;
+      if (mvRegistersEqual(c1, c2)) report.commutativePassed++;
       else report.commutativeFailed++;
 
       // Idempotence
       const i1 = MVRegister.fromState(a);
       i1.merge(a);
-      if (this.mvRegistersEqual(i1, MVRegister.fromState(a))) report.idempotentPassed++;
+      if (mvRegistersEqual(i1, MVRegister.fromState(a))) report.idempotentPassed++;
       else report.idempotentFailed++;
     }
 
@@ -349,7 +349,7 @@ export class ConvergenceVerifier {
       const g2tmp = ORSet.fromState(b);
       g2tmp.merge(c);
       g2.merge(g2tmp.toState());
-      if (this.orSetsEqual(g1, g2)) report.associativePassed++;
+      if (orSetsEqual(g1, g2)) report.associativePassed++;
       else report.associativeFailed++;
 
       // Commutativity
@@ -357,13 +357,13 @@ export class ConvergenceVerifier {
       c1.merge(b);
       const c2 = ORSet.fromState(b);
       c2.merge(a);
-      if (this.orSetsEqual(c1, c2)) report.commutativePassed++;
+      if (orSetsEqual(c1, c2)) report.commutativePassed++;
       else report.commutativeFailed++;
 
       // Idempotence
       const i1 = ORSet.fromState(a);
       i1.merge(a);
-      if (this.orSetsEqual(i1, ORSet.fromState(a))) report.idempotentPassed++;
+      if (orSetsEqual(i1, ORSet.fromState(a))) report.idempotentPassed++;
       else report.idempotentFailed++;
     }
 
@@ -446,45 +446,52 @@ export class ConvergenceVerifier {
     }
     return { elements, tombstones };
   }
+}
 
-  private countersEqual(a: GCounter, b: GCounter): boolean {
-    const allKeys = new Set([
-      ...Object.keys(a.counts),
-      ...Object.keys(b.counts),
-    ]);
-    for (const k of allKeys) {
-      if ((a.counts[k] ?? 0) !== (b.counts[k] ?? 0)) return false;
-    }
-    return true;
-  }
+// ── CRDT State Equivalence Helpers ─────────────────────────
+//
+// Exported pure functions so the "not-yet-converged" detection logic
+// (the `return false` branches) is independently testable, rather than being
+// reachable only through the random-trial happy path where the CRDTs always
+// converge. Each compares two CRDT states for exact membership/equivalence.
 
-  private pnCountersEqual(a: PNCounter, b: PNCounter): boolean {
-    const as = a.toState();
-    const bs = b.toState();
-    const allNodes = new Set([
-      ...Object.keys(as.p), ...Object.keys(as.n),
-      ...Object.keys(bs.p), ...Object.keys(bs.n),
-    ]);
-    for (const n of allNodes) {
-      if ((as.p[n] ?? 0) !== (bs.p[n] ?? 0)) return false;
-      if ((as.n[n] ?? 0) !== (bs.n[n] ?? 0)) return false;
-    }
-    return true;
+export function countersEqual(a: GCounter, b: GCounter): boolean {
+  const allKeys = new Set([
+    ...Object.keys(a.counts),
+    ...Object.keys(b.counts),
+  ]);
+  for (const k of allKeys) {
+    if ((a.counts[k] ?? 0) !== (b.counts[k] ?? 0)) return false;
   }
+  return true;
+}
 
-  private mvRegistersEqual(a: MVRegister, b: MVRegister): boolean {
-    const aVals = new Set(a.values());
-    const bVals = new Set(b.values());
-    if (aVals.size !== bVals.size) return false;
-    for (const v of aVals) {
-      if (!bVals.has(v)) return false;
-    }
-    return true;
+export function pnCountersEqual(a: PNCounter, b: PNCounter): boolean {
+  const as = a.toState();
+  const bs = b.toState();
+  const allNodes = new Set([
+    ...Object.keys(as.p), ...Object.keys(as.n),
+    ...Object.keys(bs.p), ...Object.keys(bs.n),
+  ]);
+  for (const n of allNodes) {
+    if ((as.p[n] ?? 0) !== (bs.p[n] ?? 0)) return false;
+    if ((as.n[n] ?? 0) !== (bs.n[n] ?? 0)) return false;
   }
+  return true;
+}
 
-  private orSetsEqual(a: ORSet, b: ORSet): boolean {
-    const aMems = new Set(a.members());
-    const bMems = new Set(b.members());
-    return aMems.size === bMems.size && [...aMems].every((m) => bMems.has(m));
+export function mvRegistersEqual(a: MVRegister, b: MVRegister): boolean {
+  const aVals = new Set(a.values());
+  const bVals = new Set(b.values());
+  if (aVals.size !== bVals.size) return false;
+  for (const v of aVals) {
+    if (!bVals.has(v)) return false;
   }
+  return true;
+}
+
+export function orSetsEqual(a: ORSet, b: ORSet): boolean {
+  const aMems = new Set(a.members());
+  const bMems = new Set(b.members());
+  return aMems.size === bMems.size && [...aMems].every((m) => bMems.has(m));
 }

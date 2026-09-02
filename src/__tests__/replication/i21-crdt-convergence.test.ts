@@ -18,6 +18,10 @@ import {
 import {
   ConvergenceVerifier,
   SeededRNG,
+  countersEqual,
+  pnCountersEqual,
+  mvRegistersEqual,
+  orSetsEqual,
 } from "../../replication/crdt-convergence";
 import { ConflictResolver } from "../../replication/ConflictResolver";
 
@@ -626,5 +630,80 @@ describe("CRT13: Full Convergence Report", () => {
       expect(report.idempotentFailed, `${crdtType} idempotence`).toBe(0);
       expect(report.failures).toEqual([]);
     }
+  });
+});
+
+// ── CRT14: CRDT State Equivalence Helpers ───────────────────
+
+describe("CRT14: CRDT state equivalence helpers", () => {
+  it("countersEqual returns true for equal counts and false for differing ones", () => {
+    const a = new GCounter({ counts: { n1: 5, n2: 3 } });
+    const b = new GCounter({ counts: { n1: 5, n2: 3 } });
+    expect(countersEqual(a, b)).toBe(true);
+
+    const c = new GCounter({ counts: { n1: 5, n2: 8 } });
+    expect(countersEqual(a, c)).toBe(false); // differing count
+    expect(countersEqual(a, new GCounter({ counts: { n1: 5 } }))).toBe(false); // b missing n2
+    // Reverse direction: a missing a key that b has (exercises a.counts[k] ?? 0).
+    expect(countersEqual(new GCounter({ counts: { n1: 5 } }), b)).toBe(false);
+  });
+
+  it("pnCountersEqual detects differences in either p or n", () => {
+    const a = new PNCounter({ p: { n1: 10 }, n: { n1: 2 } });
+    const b = new PNCounter({ p: { n1: 10 }, n: { n1: 2 } });
+    expect(pnCountersEqual(a, b)).toBe(true);
+
+    const pDiff = new PNCounter({ p: { n1: 11 }, n: { n1: 2 } });
+    expect(pnCountersEqual(a, pDiff)).toBe(false);
+
+    const nDiff = new PNCounter({ p: { n1: 10 }, n: { n1: 3 } });
+    expect(pnCountersEqual(a, nDiff)).toBe(false);
+
+    // Missing-key directions exercise the `?? 0` nullish branches.
+    expect(pnCountersEqual(new PNCounter({ p: { n1: 10 }, n: {} }), b)).toBe(false); // a.n missing n1
+    expect(pnCountersEqual(new PNCounter({ p: {}, n: { n1: 2 } }), b)).toBe(false); // a.p missing n1
+    expect(pnCountersEqual(a, new PNCounter({ p: { n1: 10 }, n: {} }))).toBe(false); // b.n missing n1
+    expect(pnCountersEqual(a, new PNCounter({ p: {}, n: { n1: 2 } }))).toBe(false); // b.p missing n1
+  });
+
+  it("mvRegistersEqual detects both size mismatch and value mismatch", () => {
+    const a = new MVRegister({ entries: [{ value: "x", wallTime: 1, logical: 0, nodeId: "n1" }] });
+    const b = new MVRegister({ entries: [{ value: "x", wallTime: 1, logical: 0, nodeId: "n1" }] });
+    expect(mvRegistersEqual(a, b)).toBe(true);
+
+    // Different value (same size)
+    const c = new MVRegister({ entries: [{ value: "y", wallTime: 1, logical: 0, nodeId: "n1" }] });
+    expect(mvRegistersEqual(a, c)).toBe(false);
+
+    // Different size
+    const d = new MVRegister({
+      entries: [
+        { value: "x", wallTime: 1, logical: 0, nodeId: "n1" },
+        { value: "z", wallTime: 1, logical: 0, nodeId: "n1" },
+      ],
+    });
+    expect(mvRegistersEqual(a, d)).toBe(false);
+  });
+
+  it("orSetsEqual detects size mismatch and membership mismatch", () => {
+    const a = new ORSet();
+    a.add("apple", "t1");
+    a.add("banana", "t2");
+
+    const b = new ORSet();
+    b.add("apple", "t1");
+    b.add("banana", "t2");
+    expect(orSetsEqual(a, b)).toBe(true);
+
+    // Membership mismatch (same size, different element)
+    const c = new ORSet();
+    c.add("apple", "t1");
+    c.add("cherry", "t2");
+    expect(orSetsEqual(a, c)).toBe(false);
+
+    // Size mismatch
+    const d = new ORSet();
+    d.add("apple", "t1");
+    expect(orSetsEqual(a, d)).toBe(false);
   });
 });
