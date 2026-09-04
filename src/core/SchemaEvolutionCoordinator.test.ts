@@ -89,6 +89,15 @@ describe("SchemaEvolutionCoordinator", () => {
     it("should throw when rolling back an unknown change", async () => {
       await expect(coordinator.rollback("unknown-id")).rejects.toThrow("not found");
     });
+
+    it("should throw when the change has no rollback SQL", async () => {
+      const change = makeChange({ id: "v-no-rollback", rollbackSql: undefined });
+      await coordinator.proposeChange(change);
+
+      await expect(coordinator.rollback("v-no-rollback")).rejects.toThrow(
+        "has no rollback SQL",
+      );
+    });
   });
 
   describe("getAppliedChanges", () => {
