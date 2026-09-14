@@ -32,7 +32,7 @@
     "zeromq": "^6.2.1"
   },
   "devDependencies": {
-    "@types/node": "^22.13.4",
+    "@types/node": "^26.5.1",
     "@vitest/coverage-v8": "^3.2.6",
     "typescript": "^5.7.3",
     "vitest": "^3.0.8"
