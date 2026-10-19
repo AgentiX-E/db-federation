@@ -28,7 +28,7 @@
     "dist"
   ],
   "dependencies": {
-    "lmdb": "^3.2.6",
+    "lmdb": "^3.5.7",
     "zeromq": "^6.2.1"
   },
   "devDependencies": {
